@@ -6,17 +6,15 @@ import gsap from 'gsap';
 import { database } from './firebase-config.js';
 import { ref, set, get } from "firebase/database";
 import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scorecard-service.js';
-import { WebXRPolyfill } from 'three/addons/webxr/WebXRPolyfill.js';
 
 // First, make sure Three.js is properly imported
 console.log('Three.js Version:', THREE.REVISION); // This will verify Three.js is loaded
 
 // Initialize WebXR Polyfill with configuration for iOS
 const polyfill = new WebXRPolyfill({
-    allowCardboardOnDesktop: true, // Enable Cardboard mode even on desktop (for testing)
+    allowCardboardOnDesktop: true,
     cardboardConfig: {
-        // Cardboard V2 device parameters
-        INTERPUPILLARY_DISTANCE: 0.062, // Average IPD
+        INTERPUPILLARY_DISTANCE: 0.062,
         ADDITIONAL_VIEWERS: []
     }
 });

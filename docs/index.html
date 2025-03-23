@@ -3,12 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IPL Scoreboard</title>
+    <title>AR Cricket Scorecard</title>
     <style>
-        body { margin: 0; overflow: hidden; }
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
+            color: white;
+        }
     </style>
-  <script type="module" crossorigin src="./assets/index-sgeJUhG3.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/"
+            }
+        }
+    </script>
+  <script type="module" crossorigin src="/assets/index-5geYbw4-.js"></script>
 </head>
-<body>
+<body>
+    <div id="info">AR Cricket Scorecard</div>
+    <!-- Add WebXR Polyfill -->
+    <script src="https://cdn.jsdelivr.net/npm/webxr-polyfill@latest/build/webxr-polyfill.js"></script>
+
 </body>
 </html>
