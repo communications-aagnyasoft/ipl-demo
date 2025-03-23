@@ -8,19 +8,7 @@ import { ref, set, get } from "firebase/database";
 import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scorecard-service.js';
 
 // First, make sure Three.js is properly imported
-console.log('Three.js Version:', THREE.REVISION); // This will verify Three.js is loaded
-
-// Initialize WebXR Polyfill with configuration for iOS
-const polyfill = new WebXRPolyfill({
-    allowCardboardOnDesktop: true,
-    cardboardConfig: {
-        INTERPUPILLARY_DISTANCE: 0.062,
-        ADDITIONAL_VIEWERS: []
-    }
-});
-
-// Check if running on iOS
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+console.log('Three.js Version:', THREE.REVISION);
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -35,17 +23,23 @@ const renderer = new THREE.WebGLRenderer({
 
 // Enhanced renderer settings for better visual quality
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Optimize for performance
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.xr.enabled = true;
-renderer.shadowMap.enabled = true; // Enable shadows
-renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 document.body.appendChild(renderer.domElement);
 
-// Customize AR button
-async function createARButton(renderer) {
+// Create and add AR button
+const arButton = createARButton(renderer);
+document.body.appendChild(arButton);
+
+// Check if running on iOS
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+// Create AR button with iOS support
+function createARButton(renderer) {
     if (isIOS) {
-        // Custom button for iOS
         const button = document.createElement('button');
         button.style.cssText = `
             position: absolute;
@@ -55,8 +49,8 @@ async function createARButton(renderer) {
             padding: 12px 24px;
             border: none;
             border-radius: 4px;
-            background: #fff;
-            color: #000;
+            background: #1a73e8;
+            color: white;
             font: bold 13px sans-serif;
             cursor: pointer;
             z-index: 999;
@@ -65,40 +59,30 @@ async function createARButton(renderer) {
 
         button.addEventListener('click', async () => {
             try {
-                // Request AR session with light estimation
                 const session = await navigator.xr.requestSession('immersive-ar', {
                     requiredFeatures: ['hit-test'],
-                    optionalFeatures: ['light-estimation'],
+                    optionalFeatures: ['dom-overlay'],
+                    domOverlay: { root: document.body }
                 });
-                onSessionStarted(session);
+                
+                renderer.xr.setReferenceSpaceType('local');
+                await renderer.xr.setSession(session);
+                
+                session.addEventListener('end', () => {
+                    renderer.xr.setSession(null);
+                });
+                
+                renderer.setAnimationLoop(render);
             } catch (error) {
                 console.error('Error starting AR session:', error);
                 alert('AR not supported on this device');
             }
         });
 
-        document.body.appendChild(button);
         return button;
     } else {
-        // Use default ARButton for other platforms
         return ARButton.createButton(renderer);
     }
-}
-
-// Modified session start handler
-async function onSessionStarted(session) {
-    session.addEventListener('end', onSessionEnded);
-
-    // Set up renderer for the session
-    renderer.xr.setReferenceSpaceType('local');
-    await renderer.xr.setSession(session);
-
-    // Start the render loop
-    renderer.setAnimationLoop(render);
-}
-
-function onSessionEnded() {
-    renderer.setAnimationLoop(null);
 }
 
 // Create scoreboard group
@@ -440,22 +424,6 @@ async function init() {
                 const firstMatch = matchesArray[0];
                 updateMatchDisplay(firstMatch);
             }
-
-            // Create and add AR button after data is loaded
-            const arButton = await createARButton(renderer);
-            if (!isIOS) {
-                // Style the button for non-iOS platforms
-                arButton.style.backgroundColor = '#1a73e8';
-                arButton.style.padding = '16px 24px';
-                arButton.style.border = 'none';
-                arButton.style.borderRadius = '24px';
-                arButton.style.color = 'white';
-                arButton.style.fontSize = '16px';
-                arButton.style.fontWeight = '500';
-                arButton.style.transition = 'all 0.3s ease';
-                arButton.style.bottom = '24px';
-            }
-            document.body.appendChild(arButton);
         } else {
             console.log('No match schedule found in Firebase');
         }
