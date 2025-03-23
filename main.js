@@ -8,7 +8,7 @@ import { ref, set, get } from "firebase/database";
 import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scorecard-service.js';
 
 // First, make sure Three.js is properly imported
-console.log('Three.js Version:', THREE.REVISION);
+console.log('Three.js Version:', THREE.REVISION); // This will verify Three.js is loaded
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -23,67 +23,25 @@ const renderer = new THREE.WebGLRenderer({
 
 // Enhanced renderer settings for better visual quality
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Optimize for performance
 renderer.xr.enabled = true;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = true; // Enable shadows
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
 
 document.body.appendChild(renderer.domElement);
 
-// Create and add AR button
-const arButton = createARButton(renderer);
+// Customize AR button
+const arButton = ARButton.createButton(renderer);
+arButton.style.backgroundColor = '#1a73e8';
+arButton.style.padding = '16px 24px';
+arButton.style.border = 'none';
+arButton.style.borderRadius = '24px';
+arButton.style.color = 'white';
+arButton.style.fontSize = '16px';
+arButton.style.fontWeight = '500';
+arButton.style.transition = 'all 0.3s ease';
+arButton.style.bottom = '24px';
 document.body.appendChild(arButton);
-
-// Check if running on iOS
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-// Create AR button with iOS support
-function createARButton(renderer) {
-    if (isIOS) {
-        const button = document.createElement('button');
-        button.style.cssText = `
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 12px 24px;
-            border: none;
-            border-radius: 4px;
-            background: #1a73e8;
-            color: white;
-            font: bold 13px sans-serif;
-            cursor: pointer;
-            z-index: 999;
-        `;
-        button.textContent = 'Start AR';
-
-        button.addEventListener('click', async () => {
-            try {
-                const session = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['hit-test'],
-                    optionalFeatures: ['dom-overlay'],
-                    domOverlay: { root: document.body }
-                });
-                
-                renderer.xr.setReferenceSpaceType('local');
-                await renderer.xr.setSession(session);
-                
-                session.addEventListener('end', () => {
-                    renderer.xr.setSession(null);
-                });
-                
-                renderer.setAnimationLoop(render);
-            } catch (error) {
-                console.error('Error starting AR session:', error);
-                alert('AR not supported on this device');
-            }
-        });
-
-        return button;
-    } else {
-        return ARButton.createButton(renderer);
-    }
-}
 
 // Create scoreboard group
 const scoreboardGroup = new THREE.Group();
@@ -585,20 +543,18 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                 // Match Number (top)
                 createTextLine(matchData.matchNumber, font, 0.03, 0x1a73e8, 0.12);
                 
-                // Teams (second line) with batting indicator
+                // Teams with batting indicator (second line)
                 let team1Text = matchData.teams.team1;
                 let team2Text = matchData.teams.team2;
-                
                 if (scoreInfo && scoreInfo.currentInnings) {
-                    const battingTeam = scoreInfo.currentInnings.battingTeam;
-                    if (battingTeam === matchData.teams.team1) {
+                    if (scoreInfo.currentInnings.battingTeam === matchData.teams.team1) {
                         team1Text = `${team1Text} *`;
-                    } else if (battingTeam === matchData.teams.team2) {
+                    } else if (scoreInfo.currentInnings.battingTeam === matchData.teams.team2) {
                         team2Text = `${team2Text} *`;
                     }
                 }
-                
-                createTextLine(`${team1Text} vs ${team2Text}`, font, 0.04, 0x000000, 0.06);
+                createTextLine(`${team1Text} vs ${team2Text}`, 
+                    font, 0.04, 0x000000, 0.06);
 
                 // If we have score info, show it
                 if (scoreInfo && scoreInfo.currentInnings) {
