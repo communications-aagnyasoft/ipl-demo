@@ -16,7 +16,8 @@
   "dependencies": {
     "firebase": "^11.4.0",
     "gsap": "^3.12.7",
-    "three": "^0.174.0"
+    "three": "^0.174.0",
+    "webxr-polyfill": "^2.0.3"
   },
   "devDependencies": {
     "vite": "^6.2.2"

@@ -6,9 +6,23 @@ import gsap from 'gsap';
 import { database } from './firebase-config.js';
 import { ref, set, get } from "firebase/database";
 import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scorecard-service.js';
+import { WebXRPolyfill } from 'three/addons/webxr/WebXRPolyfill.js';
 
 // First, make sure Three.js is properly imported
 console.log('Three.js Version:', THREE.REVISION); // This will verify Three.js is loaded
+
+// Initialize WebXR Polyfill with configuration for iOS
+const polyfill = new WebXRPolyfill({
+    allowCardboardOnDesktop: true, // Enable Cardboard mode even on desktop (for testing)
+    cardboardConfig: {
+        // Cardboard V2 device parameters
+        INTERPUPILLARY_DISTANCE: 0.062, // Average IPD
+        ADDITIONAL_VIEWERS: []
+    }
+});
+
+// Check if running on iOS
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -31,17 +45,63 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
 document.body.appendChild(renderer.domElement);
 
 // Customize AR button
-const arButton = ARButton.createButton(renderer);
-arButton.style.backgroundColor = '#1a73e8';
-arButton.style.padding = '16px 24px';
-arButton.style.border = 'none';
-arButton.style.borderRadius = '24px';
-arButton.style.color = 'white';
-arButton.style.fontSize = '16px';
-arButton.style.fontWeight = '500';
-arButton.style.transition = 'all 0.3s ease';
-arButton.style.bottom = '24px';
-document.body.appendChild(arButton);
+async function createARButton(renderer) {
+    if (isIOS) {
+        // Custom button for iOS
+        const button = document.createElement('button');
+        button.style.cssText = `
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            background: #fff;
+            color: #000;
+            font: bold 13px sans-serif;
+            cursor: pointer;
+            z-index: 999;
+        `;
+        button.textContent = 'Start AR';
+
+        button.addEventListener('click', async () => {
+            try {
+                // Request AR session with light estimation
+                const session = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['hit-test'],
+                    optionalFeatures: ['light-estimation'],
+                });
+                onSessionStarted(session);
+            } catch (error) {
+                console.error('Error starting AR session:', error);
+                alert('AR not supported on this device');
+            }
+        });
+
+        document.body.appendChild(button);
+        return button;
+    } else {
+        // Use default ARButton for other platforms
+        return ARButton.createButton(renderer);
+    }
+}
+
+// Modified session start handler
+async function onSessionStarted(session) {
+    session.addEventListener('end', onSessionEnded);
+
+    // Set up renderer for the session
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(session);
+
+    // Start the render loop
+    renderer.setAnimationLoop(render);
+}
+
+function onSessionEnded() {
+    renderer.setAnimationLoop(null);
+}
 
 // Create scoreboard group
 const scoreboardGroup = new THREE.Group();
@@ -382,6 +442,22 @@ async function init() {
                 const firstMatch = matchesArray[0];
                 updateMatchDisplay(firstMatch);
             }
+
+            // Create and add AR button after data is loaded
+            const arButton = await createARButton(renderer);
+            if (!isIOS) {
+                // Style the button for non-iOS platforms
+                arButton.style.backgroundColor = '#1a73e8';
+                arButton.style.padding = '16px 24px';
+                arButton.style.border = 'none';
+                arButton.style.borderRadius = '24px';
+                arButton.style.color = 'white';
+                arButton.style.fontSize = '16px';
+                arButton.style.fontWeight = '500';
+                arButton.style.transition = 'all 0.3s ease';
+                arButton.style.bottom = '24px';
+            }
+            document.body.appendChild(arButton);
         } else {
             console.log('No match schedule found in Firebase');
         }

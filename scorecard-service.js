@@ -28,7 +28,7 @@ export async function fetchAndUpdateScore(matchId) {
     const options = {
         method: 'GET',
         headers: {
-            'x-rapidapi-key': '5eb692fdf9msh6a544cac397e4d4p1793ddjsn9934e78afac8',
+            'x-rapidapi-key': '1c37589a58mshc93066d03b8f756p10323bjsne1bd7a81f68f',
             'x-rapidapi-host': 'cricbuzz-cricket.p.rapidapi.com'
         }
     };
