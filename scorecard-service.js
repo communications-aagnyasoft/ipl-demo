@@ -1,6 +1,8 @@
 import { database } from './firebase-config.js';
 import { ref, get, set, onValue } from "firebase/database";
 
+let lastUpdateTime = 0;
+
 // Function to get all match IDs from Firebase
 async function getMatchIdsFromFirebase() {
     console.log('Fetching match IDs from Firebase...');
@@ -28,12 +30,13 @@ export async function fetchAndUpdateScore(matchId) {
     const options = {
         method: 'GET',
         headers: {
-            'x-rapidapi-key': '1c37589a58mshc93066d03b8f756p10323bjsne1bd7a81f68f',
+            'x-rapidapi-key': '5eb692fdf9msh6a544cac397e4d4p1793ddjsn9934e78afac8',
             'x-rapidapi-host': 'cricbuzz-cricket.p.rapidapi.com'
         }
     };
 
     try {
+        console.log('RapidAPI is called for match scorecard');
         const response = await fetch(`https://cricbuzz-cricket.p.rapidapi.com/mcenter/v1/${matchId}/scard`, options);
         const data = await response.json();
         
@@ -119,11 +122,17 @@ export async function startScoreUpdates() {
 
         const matches = snapshot.val();
         
-        // Update scores every 30 seconds
-        setInterval(async () => {
-            console.log('Starting periodic score update...');
+        // Update scores every minute (60000ms)
+        const intervalId = setInterval(async () => {
+            // Check if enough time has passed since last update
+            if (!checkUpdateTime()) {
+                console.log('Skipping this interval - too soon since last update');
+                return;
+            }
+
+            console.log('Starting periodic score update at:', new Date().toISOString());
             
-            matches.forEach(async (match) => {
+            for (const match of matches) {
                 try {
                     const matchTime = parseInt(match.timing.startTime);
                     const now = Date.now();
@@ -139,8 +148,11 @@ export async function startScoreUpdates() {
                 } catch (error) {
                     console.error(`Error processing match ${match.matchId}:`, error);
                 }
-            });
-        }, 30000); // 30 seconds interval
+            }
+        }, 60000); // 60 seconds interval
+
+        // Return the interval ID for cleanup
+        return intervalId;
 
     } catch (error) {
         console.error('Error in score update service:', error);
@@ -244,4 +256,14 @@ export async function getNextMatch(currentMatchId) {
         console.error('Error getting next match:', error);
         return null;
     }
-} 
+}
+
+export function checkUpdateTime() {
+    const now = Date.now();
+    if (now - lastUpdateTime < 58000) {
+        console.log('Skipping update - too soon since last update');
+        return false;
+    }
+    lastUpdateTime = now;
+    return true;
+}

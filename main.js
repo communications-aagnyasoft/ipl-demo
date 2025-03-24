@@ -6,6 +6,19 @@ import gsap from 'gsap';
 import { database } from './firebase-config.js';
 import { ref, set, get } from "firebase/database";
 import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scorecard-service.js';
+import 'webxr-polyfill';
+
+// Initialize WebXR polyfill
+if (window.isSecureContext) {
+    // Check if WebXR is supported
+    if ('xr' in navigator) {
+        console.log('WebXR is supported');
+    } else {
+        console.log('WebXR is not supported, using polyfill');
+    }
+} else {
+    console.warn('WebXR requires a secure context (HTTPS)');
+}
 
 // First, make sure Three.js is properly imported
 console.log('Three.js Version:', THREE.REVISION); // This will verify Three.js is loaded
@@ -18,7 +31,8 @@ camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ 
     antialias: true,
-    alpha: true
+    alpha: true,
+    powerPreference: "high-performance"
 });
 
 // Enhanced renderer settings for better visual quality
@@ -27,6 +41,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Optimize for pe
 renderer.xr.enabled = true;
 renderer.shadowMap.enabled = true; // Enable shadows
 renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+
+// Add WebXR session event listeners
+renderer.xr.addEventListener('sessionstart', () => {
+    console.log('AR session started');
+});
+
+renderer.xr.addEventListener('sessionend', () => {
+    console.log('AR session ended');
+});
 
 document.body.appendChild(renderer.domElement);
 
@@ -322,6 +345,7 @@ async function fetchAndStoreMatches() {
         }
 
         // Comment out API fetch
+        // console.log('RapidAPI is called for IPL matches');
         // const response = await fetch('https://cricbuzz-cricket.p.rapidapi.com/series/v1/9237', options);
         // const data = await response.json();
         // console.log('API Response:', data);
@@ -596,20 +620,39 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
     });
 }
 
-// Update startPeriodicScoreUpdates to pass score info to updateMatchDisplay
+// Update startPeriodicScoreUpdates to ensure one call per minute
 function startPeriodicScoreUpdates(matchId) {
     console.log(`Setting up periodic score updates for match ${matchId}`);
     
-    // Clear any existing interval
+    // Clear any existing intervals globally
     if (window.currentUpdateInterval) {
+        console.log('Clearing existing update interval');
         clearInterval(window.currentUpdateInterval);
+        window.currentUpdateInterval = null;
     }
 
+    // Clear any existing countdown intervals
+    if (window.countdownInterval) {
+        console.log('Clearing existing countdown interval');
+        clearInterval(window.countdownInterval);
+        window.countdownInterval = null;
+    }
+
+    let lastUpdateTime = 0;
+    
     // Function to fetch score and handle result
     async function fetchScoreAndHandle() {
+        const now = Date.now();
+        // Only fetch if it's been at least 58 seconds since last update
+        if (now - lastUpdateTime < 58000) {
+            console.log('Skipping update - too soon since last update');
+            return false;
+        }
+
         try {
-            console.log(`Fetching score for match ${matchId}`);
+            console.log(`Fetching score for match ${matchId} at ${new Date().toISOString()}`);
             const result = await fetchAndUpdateScore(matchId);
+            lastUpdateTime = Date.now();
             console.log('Score fetch result:', result);
             
             if (result?.isComplete) {
@@ -647,19 +690,25 @@ function startPeriodicScoreUpdates(matchId) {
 
     // Initial fetch
     fetchScoreAndHandle().then(shouldStop => {
-        if (shouldStop) return;
+        if (shouldStop) {
+            console.log('Initial fetch indicates match is complete');
+            return;
+        }
         
+        console.log('Setting up minute interval for updates');
         // Set up the interval for subsequent fetches
         const updateInterval = setInterval(async () => {
             const shouldStop = await fetchScoreAndHandle();
             if (shouldStop) {
+                console.log('Match complete, clearing interval');
                 clearInterval(updateInterval);
                 window.currentUpdateInterval = null;
             }
         }, 60000); // Run every minute (60000 ms)
         
-        // Store the interval ID
+        // Store the interval ID globally
         window.currentUpdateInterval = updateInterval;
+        console.log('Update interval set:', window.currentUpdateInterval);
     });
 }
 
