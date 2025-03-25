@@ -2,6 +2,8 @@ import { database } from './firebase-config.js';
 import { ref, get, set, onValue } from "firebase/database";
 
 let lastUpdateTime = 0;
+let lastApiCallTime = 0;
+let isApiStarted = false;
 
 // Function to get all match IDs from Firebase
 async function getMatchIdsFromFirebase() {
@@ -27,10 +29,17 @@ async function getMatchIdsFromFirebase() {
 export async function fetchAndUpdateScore(matchId) {
     console.log(`Fetching scorecard for match ID: ${matchId}`);
     
+    // Check API call timing
+    const now = Date.now();
+    if (now - lastApiCallTime < 58000) {
+        console.log('Skipping API call - too soon since last call');
+        return null;
+    }
+    
     const options = {
         method: 'GET',
         headers: {
-            'x-rapidapi-key': '5eb692fdf9msh6a544cac397e4d4p1793ddjsn9934e78afac8',
+            'x-rapidapi-key': '71afb4deeamsh408a44ca0cdd513p15326bjsn0b7631071221',
             'x-rapidapi-host': 'cricbuzz-cricket.p.rapidapi.com'
         }
     };
@@ -38,7 +47,11 @@ export async function fetchAndUpdateScore(matchId) {
     try {
         console.log('RapidAPI is called for match scorecard');
         const response = await fetch(`https://cricbuzz-cricket.p.rapidapi.com/mcenter/v1/${matchId}/scard`, options);
+        if (!response.ok) {
+            throw new Error(`API call failed with status: ${response.status}`);
+        }
         const data = await response.json();
+        lastApiCallTime = now; // Update last API call time only after successful call
         
         console.log(`Received scorecard data for match ${matchId}:`, data);
 
@@ -51,7 +64,7 @@ export async function fetchAndUpdateScore(matchId) {
                 matchId: matchId,
                 matchStatus: data.status,
                 isComplete: true,
-                lastUpdated: Date.now()
+                lastUpdated: now
             });
             return {
                 isComplete: true,
@@ -80,15 +93,16 @@ export async function fetchAndUpdateScore(matchId) {
                 overs: parseFloat(currentInnings.overs) || 0,
                 runRate: parseFloat(currentInnings.runRate) || 0
             },
-            lastUpdated: Date.now()
+            lastUpdated: now,
+            fromApi: true // Flag to indicate this is fresh API data
         };
 
-        console.log(`Formatted score info for Firebase:`, scoreInfo);
+        console.log(`Formatted score info from API:`, scoreInfo);
 
         // Store in Firebase
         const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
         await set(scoreRef, scoreInfo);
-        console.log(`Successfully stored score info in Firebase for match ${matchId}`);
+        console.log(`Successfully stored fresh API score info in Firebase for match ${matchId}`);
         
         return {
             isComplete: false,
@@ -96,6 +110,21 @@ export async function fetchAndUpdateScore(matchId) {
         };
     } catch (error) {
         console.error(`Error fetching score for match ${matchId}:`, error);
+        // On API error, try to get cached data from Firebase
+        try {
+            const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
+            const snapshot = await get(scoreRef);
+            if (snapshot.exists()) {
+                const cachedData = snapshot.val();
+                console.log('Using cached data from Firebase:', cachedData);
+                return {
+                    isComplete: cachedData.isComplete || false,
+                    scoreInfo: cachedData
+                };
+            }
+        } catch (fbError) {
+            console.error('Error getting cached data:', fbError);
+        }
         throw error;
     }
 }

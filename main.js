@@ -25,7 +25,7 @@ console.log('Three.js Version:', THREE.REVISION); // This will verify Three.js i
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 0, 1);
 camera.lookAt(0, 0, 0);
 
@@ -148,34 +148,88 @@ function createScoreText(matchData) {
 }
 
 // Function to create text line
-function createTextLine(text, font, size, color, yPos) {
-    const geometry = new TextGeometry(text, {
-        font: font,
-        size: size,
-        height: 0.001, // Reduced height to prevent stretching
-        curveSegments: 12,
-        bevelEnabled: false, // Disabled bevel for cleaner text
-        bevelThickness: 0,
-        bevelSize: 0,
-        bevelSegments: 0
-    });
+function createTextLine(text, font, size, color, yPos, shouldWrap = false) {
+    if (shouldWrap) {
+        // Split text into words
+        const words = text.split(' ');
+        const lines = [];
+        let currentLine = words[0];
+        const maxCharsPerLine = 20;
 
-    geometry.computeBoundingBox();
-    geometry.center();
+        for (let i = 1; i < words.length; i++) {
+            if ((currentLine + ' ' + words[i]).length <= maxCharsPerLine) {
+                currentLine += ' ' + words[i];
+            } else {
+                lines.push(currentLine);
+                currentLine = words[i];
+            }
+        }
+        lines.push(currentLine);
 
-    const material = new THREE.MeshPhysicalMaterial({ 
-        color: color,
-        metalness: 0.2,
-        roughness: 0.4
-    });
-    
-    const textMesh = new THREE.Mesh(geometry, material);
-    textMesh.position.set(0, yPos, -0.011); // Slightly in front of the plate
-    textMesh.rotation.set(0, Math.PI, 0);
-    textMesh.scale.z = 0.0001; // Scale down the Z-axis to make text thinner
-    textMesh.castShadow = true;
-    
-    scoreboardGroup.add(textMesh);
+        // Create multiple text lines
+        const textMeshes = [];
+        const lineSpacing = 0.03; // Space between lines
+        lines.forEach((line, index) => {
+            const geometry = new TextGeometry(line, {
+                font: font,
+                size: size,
+                height: 0.001,
+                curveSegments: 12,
+                bevelEnabled: false,
+                bevelThickness: 0,
+                bevelSize: 0,
+                bevelSegments: 0
+            });
+
+            geometry.computeBoundingBox();
+            geometry.center();
+
+            const material = new THREE.MeshPhysicalMaterial({ 
+                color: color,
+                metalness: 0.2,
+                roughness: 0.4
+            });
+            
+            const textMesh = new THREE.Mesh(geometry, material);
+            textMesh.position.set(0, yPos - (index * lineSpacing), -0.013);
+            textMesh.rotation.set(0, Math.PI, 0);
+            textMesh.scale.set(0.7, 0.7, 0.0001);
+            textMesh.castShadow = true;
+            
+            scoreboardGroup.add(textMesh);
+            textMeshes.push(textMesh);
+        });
+        return textMeshes;
+    } else {
+        const geometry = new TextGeometry(text, {
+            font: font,
+            size: size,
+            height: 0.001,
+            curveSegments: 12,
+            bevelEnabled: false,
+            bevelThickness: 0,
+            bevelSize: 0,
+            bevelSegments: 0
+        });
+
+        geometry.computeBoundingBox();
+        geometry.center();
+
+        const material = new THREE.MeshPhysicalMaterial({ 
+            color: color,
+            metalness: 0.2,
+            roughness: 0.4
+        });
+        
+        const textMesh = new THREE.Mesh(geometry, material);
+        textMesh.position.set(0, yPos, -0.013);
+        textMesh.rotation.set(0, Math.PI, 0);
+        textMesh.scale.set(0.7, 0.7, 0.0001);
+        textMesh.castShadow = true;
+        
+        scoreboardGroup.add(textMesh);
+        return textMesh;
+    }
 }
 
 // Add interaction feedback
@@ -360,60 +414,61 @@ async function fetchAndStoreMatches() {
     }
 }
 
-// Initialize the application
-async function init() {
+// Function to get today's match from schedule
+async function getTodayMatch() {
+    const matchScheduleRef = ref(database, 'IPL Data/Match Schedule');
     try {
-        // Test database connection
-        const testRef = ref(database, 'IPL Data/test');
-        await set(testRef, {
-            timestamp: Date.now(),
-            message: 'Test connection'
-        });
-        console.log('Database connection successful');
+        const snapshot = await get(matchScheduleRef);
+        if (snapshot.exists()) {
+            const matches = snapshot.val();
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Set to start of day
 
-        // Get match schedule from Firebase
-        const matchScheduleRef = ref(database, 'IPL Data/Match Schedule');
-        const matchScheduleSnapshot = await get(matchScheduleRef);
-        
-        if (matchScheduleSnapshot.exists()) {
-            const matches = matchScheduleSnapshot.val();
-            console.log('All matches:', matches);
+            // Find the match scheduled for today
+            const todayMatch = matches.find(match => {
+                const matchDate = new Date(parseInt(match.timing.startTime));
+                matchDate.setHours(0, 0, 0, 0); // Set to start of day
+                return matchDate.getTime() === today.getTime();
+            });
 
-            // Convert matches to array if it's an object
-            const matchesArray = Array.isArray(matches) ? matches : Object.values(matches);
-            
-            // Find the index of match ID 114960 (as a number)
-            const currentIndex = matchesArray.findIndex(match => match.matchId === 114960);
-            console.log('Current match index:', currentIndex);
-
-            if (currentIndex !== -1) {
-                // Get the next match
-                const nextMatch = matchesArray[currentIndex + 1];
-                console.log('Next match after 114960:', nextMatch);
-
-                if (nextMatch) {
-                    console.log('Displaying next match:', nextMatch);
-                    updateMatchDisplay(nextMatch);
-                } else {
-                    console.log('No next match found after 114960');
-                    // Show the current match
-                    const currentMatch = matchesArray[currentIndex];
-                    updateMatchDisplay(currentMatch);
-                }
+            if (todayMatch) {
+                console.log('Found match for today:', todayMatch);
+                return todayMatch;
             } else {
-                console.log('Match ID 114960 not found in schedule');
-                // Show the first match as fallback
-                const firstMatch = matchesArray[0];
-                updateMatchDisplay(firstMatch);
+                // If no match today, find the next upcoming match
+                const nextMatch = matches.find(match => {
+                    const matchDate = new Date(parseInt(match.timing.startTime));
+                    return matchDate > today;
+                });
+                
+                if (nextMatch) {
+                    console.log('No match today. Next match:', nextMatch);
+                    return nextMatch;
+                }
             }
-        } else {
-            console.log('No match schedule found in Firebase');
         }
-
+        console.log('No matches found in schedule');
+        return null;
     } catch (error) {
-        console.error('Initialization error:', error);
+        console.error('Error getting today\'s match:', error);
+        return null;
     }
 }
+
+// Modify the initialization to use today's match
+async function initializeDisplay() {
+    const todayMatch = await getTodayMatch();
+    if (todayMatch) {
+        currentMatchId = todayMatch.matchId;
+        updateMatchDisplay(todayMatch);
+        startCountdown(todayMatch.timing.startTime);
+    } else {
+        console.log('No matches available to display');
+    }
+}
+
+// Call initializeDisplay when the app starts
+initializeDisplay();
 
 // Function to handle match completion
 async function handleMatchCompletion(matchId, status) {
@@ -453,6 +508,9 @@ async function handleMatchCompletion(matchId, status) {
             // Venue (third line)
             createTextLine(`${nextMatch.venue.ground}, ${nextMatch.venue.city}`, 
                 font, 0.02, 0x666666, -0.08);
+
+            createTextLine(`${nextMatch.venue.city}`, 
+                font, 0.02, 0x666666, -0.10);
             
             // Start time in IST (fourth line)
             const matchTime = new Date(parseInt(nextMatch.timing.startTime));
@@ -464,7 +522,7 @@ async function handleMatchCompletion(matchId, status) {
                 minute: '2-digit',
                 hour12: true
             });
-            createTextLine(`${istTime} IST`, font, 0.02, 0x666666, -0.12);
+            createTextLine(`${istTime} IST`, font, 0.02, 0x666666, -0.8);
             
             // Start countdown for next match
             startCountdown(nextMatch.timing.startTime);
@@ -488,6 +546,7 @@ function startCountdown(startTime) {
     let countdownInterval;
     let isMatchStarted = false;
     let isApiStarted = false;
+    let lastApiCallTime = 0;
 
     const updateTimer = () => {
         const now = Date.now();
@@ -503,9 +562,11 @@ function startCountdown(startTime) {
             const countdownText = `Starts in: ${days}d ${hours}h ${minutes}m ${seconds}s`;
             updateCountdownDisplay(countdownText);
 
-            if (!isApiStarted && timeLeft <= 600000) { // 600000ms = 10 minutes
+            // Check if 10 minutes before match and last API call was more than 1 minute ago
+            if (!isApiStarted && timeLeft <= 600000 && (now - lastApiCallTime >= 60000)) {
                 console.log('Less than 10 minutes to match, starting API calls');
                 isApiStarted = true;
+                lastApiCallTime = now;
                 if (currentMatchId) {
                     startPeriodicScoreUpdates(currentMatchId);
                 }
@@ -513,8 +574,9 @@ function startCountdown(startTime) {
         } else if (!isMatchStarted) {
             isMatchStarted = true;
             updateCountdownDisplay("Match Started!");
-            // Start periodic updates when match begins
-            if (currentMatchId) {
+            // Start periodic updates when match begins if last call was more than 1 minute ago
+            if (currentMatchId && (now - lastApiCallTime >= 60000)) {
+                lastApiCallTime = now;
                 startPeriodicScoreUpdates(currentMatchId);
             }
         }
@@ -531,6 +593,7 @@ function startCountdown(startTime) {
     };
 }
 
+// Update countdown display with adjusted position
 function updateCountdownDisplay(text) {
     const fontLoader = new FontLoader();
     fontLoader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function (font) {
@@ -542,15 +605,15 @@ function updateCountdownDisplay(text) {
             scoreboardGroup.remove(existingText);
         }
         
-        // Create new countdown text at the bottom with more space
-        const textMesh = createTextLine(text, font, 0.025, 0x1a73e8, -0.13);
+        // Create new countdown text at a higher position
+        const textMesh = createTextLine(text, font, 0.02, 0x1a73e8, -0.06);
         if (textMesh) {
             textMesh.userData.isCountdown = true;
         }
     });
 }
 
-// Modify updateMatchDisplay to use the new periodic updates
+// Modify updateMatchDisplay to include GMT start time
 async function updateMatchDisplay(matchData, scoreInfo = null) {
     const fontLoader = new FontLoader();
     fontLoader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function (font) {
@@ -565,7 +628,7 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                 currentMatchId = matchData.matchId;
 
                 // Match Number (top)
-                createTextLine(matchData.matchNumber, font, 0.03, 0x1a73e8, 0.12);
+                createTextLine(matchData.matchNumber, font, 0.028, 0x1a73e8, 0.12);
                 
                 // Teams with batting indicator (second line)
                 let team1Text = matchData.teams.team1;
@@ -578,26 +641,38 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                     }
                 }
                 createTextLine(`${team1Text} vs ${team2Text}`, 
-                    font, 0.04, 0x000000, 0.06);
+                    font, 0.035, 0x000000, 0.07);
+
+                // Match start time in GMT (new addition)
+                const gmtTime = new Date(parseInt(matchData.timing.startTime));
+                const gmtString = gmtTime.toLocaleString('en-US', {
+                    timeZone: 'GMT',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                // createTextLine(`Match starts at ${gmtString} GMT`, font, 0.02, 0x1a73e8, 0.03);
 
                 // If we have score info, show it
                 if (scoreInfo && scoreInfo.currentInnings) {
                     // Match Status (third line)
-                    createTextLine(scoreInfo.matchStatus, font, 0.02, 0x666666, 0.02);
+                    createTextLine(scoreInfo.matchStatus, font, 0.022, 0x666666, -0.01);
                     
                     // Score (fourth line)
                     const scoreText = `${scoreInfo.currentInnings.score}/${scoreInfo.currentInnings.wickets} (${scoreInfo.currentInnings.overs} ov)`;
-                    createTextLine(scoreText, font, 0.025, 0x000000, -0.02);
+                    createTextLine(scoreText, font, 0.03, 0x000000, -0.05);
                     
                     // Run Rate (fifth line)
-                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.02, 0x666666, -0.06);
+                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.022, 0x666666, -0.09);
                 }
                 
-                // Venue (sixth line)
-                createTextLine(`${matchData.venue.ground}, ${matchData.venue.city}`, 
-                    font, 0.02, 0x666666, -0.10);
+                // Venue split into two separate lines
+                createTextLine(matchData.venue.ground, font, 0.02, 0x666666, -0.085);
+                createTextLine(matchData.venue.city, font, 0.02, 0x666666, -0.11);
                 
-                // Start time in IST (seventh line)
+                // Start time in IST moved down
                 const matchTime = new Date(parseInt(matchData.timing.startTime));
                 const istTime = matchTime.toLocaleString('en-US', {
                     timeZone: 'Asia/Kolkata',
@@ -609,12 +684,12 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                 });
                 createTextLine(`${istTime} IST`, font, 0.02, 0x666666, -0.14);
                 
-                // Start countdown (will be displayed at the bottom by updateCountdownDisplay)
+                // Start countdown
                 startCountdown(matchData.timing.startTime);
                 
             } catch (error) {
                 console.error('Error updating match display:', error);
-                createTextLine("Error Loading Data", font, 0.04, 0x1a73e8, 0);
+                createTextLine("Error Loading Data", font, 0.035, 0x1a73e8, 0);
             }
         }
     });
@@ -638,7 +713,7 @@ function startPeriodicScoreUpdates(matchId) {
         window.countdownInterval = null;
     }
 
-    let lastUpdateTime = 0;
+    let lastUpdateTime = Date.now();
     
     // Function to fetch score and handle result
     async function fetchScoreAndHandle() {
@@ -652,7 +727,7 @@ function startPeriodicScoreUpdates(matchId) {
         try {
             console.log(`Fetching score for match ${matchId} at ${new Date().toISOString()}`);
             const result = await fetchAndUpdateScore(matchId);
-            lastUpdateTime = Date.now();
+            lastUpdateTime = now;
             console.log('Score fetch result:', result);
             
             if (result?.isComplete) {
@@ -719,7 +794,6 @@ window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointerleave', onPointerUp);
 
 // Start the application
-init();
 animate();
 
 // Add at the top of your file
