@@ -105,20 +105,6 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 
-// Add WebXR session event listeners with position reset
-renderer.xr.addEventListener('sessionstart', () => {
-    console.log('AR session started');
-    // Reset scoreboard position when AR session starts
-    scoreboardGroup.position.set(0, 0, -0.5);
-    scoreboardGroup.rotation.set(0, Math.PI, 0);
-});
-
-renderer.xr.addEventListener('sessionend', () => {
-    console.log('AR session ended');
-});
-
-document.body.appendChild(renderer.domElement);
-
 // Modify AR button creation with required features
 const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test', 'dom-overlay'],
@@ -137,6 +123,28 @@ arButton.style.fontWeight = '500';
 arButton.style.transition = 'all 0.3s ease';
 arButton.style.bottom = '24px';
 document.body.appendChild(arButton);
+
+// Add WebXR session event listeners with position reset
+renderer.xr.addEventListener('sessionstart', () => {
+    console.log('AR session started');
+    // Reset scoreboard position when AR session starts
+    scoreboardGroup.position.set(0, 0, -0.5);
+    scoreboardGroup.rotation.set(0, Math.PI, 0);
+    // Remove the AR button when session starts
+    if (arButton && arButton.parentNode) {
+        arButton.parentNode.removeChild(arButton);
+    }
+});
+
+renderer.xr.addEventListener('sessionend', () => {
+    console.log('AR session ended');
+    // Re-add the AR button when session ends
+    if (arButton && !arButton.parentNode) {
+        document.body.appendChild(arButton);
+    }
+});
+
+document.body.appendChild(renderer.domElement);
 
 // Create scoreboard group with improved positioning
 const scoreboardGroup = new THREE.Group();
