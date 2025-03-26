@@ -29,102 +29,34 @@ async function getMatchIdsFromFirebase() {
 export async function fetchAndUpdateScore(matchId) {
     console.log(`Fetching scorecard for match ID: ${matchId}`);
     
-    // Check API call timing
-    const now = Date.now();
-    if (now - lastApiCallTime < 58000) {
-        console.log('Skipping API call - too soon since last call');
-        return null;
-    }
-    
-    const options = {
-        method: 'GET',
-        headers: {
-            'x-rapidapi-key': '71afb4deeamsh408a44ca0cdd513p15326bjsn0b7631071221',
-            'x-rapidapi-host': 'cricbuzz-cricket.p.rapidapi.com'
-        }
-    };
-
     try {
-        console.log('RapidAPI is called for match scorecard');
-        const response = await fetch(`https://cricbuzz-cricket.p.rapidapi.com/mcenter/v1/${matchId}/scard`, options);
-        if (!response.ok) {
-            throw new Error(`API call failed with status: ${response.status}`);
-        }
-        const data = await response.json();
-        lastApiCallTime = now; // Update last API call time only after successful call
+        // Get score data from Firebase
+        const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
+        const snapshot = await get(scoreRef);
         
+        if (!snapshot.exists()) {
+            console.log(`No score data found for match ${matchId}`);
+            return null;
+        }
+
+        const data = snapshot.val();
         console.log(`Received scorecard data for match ${matchId}:`, data);
 
         // Check if match is complete
-        if (data.isMatchComplete) {
-            console.log(`Match ${matchId} is complete. Status: ${data.status}`);
-            // Store final status in Firebase
-            const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
-            await set(scoreRef, {
-                matchId: matchId,
-                matchStatus: data.status,
-                isComplete: true,
-                lastUpdated: now
-            });
+        if (data.isComplete) {
+            console.log(`Match ${matchId} is complete. Status: ${data.matchStatus}`);
             return {
                 isComplete: true,
-                status: data.status,
+                status: data.matchStatus,
                 matchId: matchId
             };
         }
 
-        // Get the current innings (last one in the array)
-        const currentInnings = data.scorecard?.[data.scorecard.length - 1];
-        console.log('Current innings data:', currentInnings);
+        // Return the current score data
+        return data;
 
-        if (!currentInnings) {
-            console.log(`No current innings data available for match ${matchId}`);
-            return null;
-        }
-
-        // Extract match info with complete score details
-        const scoreInfo = {
-            matchId: matchId,
-            matchStatus: data.status,
-            currentInnings: {
-                battingTeam: currentInnings.batTeamSName || '',
-                score: parseInt(currentInnings.score) || 0,
-                wickets: parseInt(currentInnings.wickets) || 0,
-                overs: parseFloat(currentInnings.overs) || 0,
-                runRate: parseFloat(currentInnings.runRate) || 0
-            },
-            lastUpdated: now,
-            fromApi: true // Flag to indicate this is fresh API data
-        };
-
-        console.log(`Formatted score info from API:`, scoreInfo);
-
-        // Store in Firebase
-        const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
-        await set(scoreRef, scoreInfo);
-        console.log(`Successfully stored fresh API score info in Firebase for match ${matchId}`);
-        
-        return {
-            isComplete: false,
-            scoreInfo: scoreInfo
-        };
     } catch (error) {
-        console.error(`Error fetching score for match ${matchId}:`, error);
-        // On API error, try to get cached data from Firebase
-        try {
-            const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
-            const snapshot = await get(scoreRef);
-            if (snapshot.exists()) {
-                const cachedData = snapshot.val();
-                console.log('Using cached data from Firebase:', cachedData);
-                return {
-                    isComplete: cachedData.isComplete || false,
-                    scoreInfo: cachedData
-                };
-            }
-        } catch (fbError) {
-            console.error('Error getting cached data:', fbError);
-        }
+        console.error('Error fetching score:', error);
         throw error;
     }
 }
