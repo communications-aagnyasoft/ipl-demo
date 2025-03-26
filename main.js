@@ -7,6 +7,7 @@ import { database } from './firebase-config.js';
 import { ref, set, get } from "firebase/database";
 import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scorecard-service.js';
 import 'webxr-polyfill';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 // Initialize WebXR polyfill
 if (window.isSecureContext) {
@@ -335,46 +336,27 @@ function onPointerUp() {
     rotationSpeed = { x: 0, y: 0 };
 }
 
-// Animation
+// Then initialize your controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.rotateSpeed = 0.5;        // Reduce overall rotation speed
+controls.enableDamping = true;     // Add smooth movement
+controls.dampingFactor = 0.1;      // Increase damping for smoother movement
+controls.maxPolarAngle = Math.PI * 0.4;
+controls.minPolarAngle = Math.PI * 0.6;
+controls.enableZoom = false;
+controls.enablePan = false;
+
+// Modify the existing animate function to include controls update
 function animate() {
-    renderer.setAnimationLoop(render);
-}
-
-function render() {
-    // Animate rim light color
-    const hue = (Date.now() * 0.0001) % 1;
-    rimLight.color.setHSL(hue, 0.5, 0.5);
-
-    // Subtle pulse animation for the glow
-    const pulseIntensity = Math.sin(Date.now() * 0.002) * 0.1 + 0.9;
-    glowMaterial.emissiveIntensity = 0.5 * pulseIntensity;
-
-    // Apply auto-rotation with smooth easing
-    if (autoRotate) {
-        const targetRotationY = scoreboardGroup.rotation.y + 0.005;
-        scoreboardGroup.rotation.y += (targetRotationY - scoreboardGroup.rotation.y) * 0.98;
+    requestAnimationFrame(animate);
+    if (controls) {
+        controls.update();
     }
-
-    // Apply user rotation
-    if (isDragging) {
-        scoreboardGroup.rotation.x += rotationSpeed.x;
-        scoreboardGroup.rotation.y += rotationSpeed.y;
-        scoreboardGroup.rotation.x = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, scoreboardGroup.rotation.x));
-    }
-
-    // Add damping when not dragging
-    if (!isDragging) {
-        rotationSpeed.x *= 0.95;
-        rotationSpeed.y *= 0.95;
-        scoreboardGroup.rotation.x += rotationSpeed.x;
-        scoreboardGroup.rotation.y += rotationSpeed.y;
-    }
-
-    // Subtle floating animation
-    scoreboardGroup.position.y = Math.sin(Date.now() * 0.001) * 0.01;
-    
     renderer.render(scene, camera);
 }
+
+// Finally, start the animation
+animate();
 
 // Function to fetch and store IPL matches
 async function fetchAndStoreMatches() {
@@ -605,10 +587,12 @@ function updateCountdownDisplay(text) {
             scoreboardGroup.remove(existingText);
         }
         
-        // Create new countdown text at a higher position
-        const textMesh = createTextLine(text, font, 0.02, 0x1a73e8, -0.06);
-        if (textMesh) {
-            textMesh.userData.isCountdown = true;
+        // Only show countdown text if it's not "Match Started!"
+        if (text !== "Match Started!") {
+            const textMesh = createTextLine(text, font, 0.02, 0x1a73e8, 0.045);
+            if (textMesh) {
+                textMesh.userData.isCountdown = true;
+            }
         }
     });
 }
@@ -658,18 +642,18 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                 // If we have score info, show it
                 if (scoreInfo && scoreInfo.currentInnings) {
                     // Match Status (third line)
-                    createTextLine(scoreInfo.matchStatus, font, 0.022, 0x666666, -0.01);
+                    createTextLine(scoreInfo.matchStatus, font, 0.022, 0x666666, -0.05);
                     
                     // Score (fourth line)
                     const scoreText = `${scoreInfo.currentInnings.score}/${scoreInfo.currentInnings.wickets} (${scoreInfo.currentInnings.overs} ov)`;
-                    createTextLine(scoreText, font, 0.03, 0x000000, -0.05);
+                    createTextLine(scoreText, font, 0.03, 0x000000, 0.01);
                     
                     // Run Rate (fifth line)
-                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.022, 0x666666, -0.09);
+                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.022, 0x666666, -0.02);
                 }
                 
                 // Venue split into two separate lines
-                createTextLine(matchData.venue.ground, font, 0.02, 0x666666, -0.085);
+                createTextLine(matchData.venue.ground, font, 0.02, 0x666666, -0.08);
                 createTextLine(matchData.venue.city, font, 0.02, 0x666666, -0.11);
                 
                 // Start time in IST moved down
@@ -695,26 +679,18 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
     });
 }
 
-// Update startPeriodicScoreUpdates to ensure one call per minute
+// Modify startPeriodicScoreUpdates function
 function startPeriodicScoreUpdates(matchId) {
     console.log(`Setting up periodic score updates for match ${matchId}`);
     
-    // Clear any existing intervals globally
+    // Clear any existing intervals
     if (window.currentUpdateInterval) {
-        console.log('Clearing existing update interval');
         clearInterval(window.currentUpdateInterval);
         window.currentUpdateInterval = null;
     }
 
-    // Clear any existing countdown intervals
-    if (window.countdownInterval) {
-        console.log('Clearing existing countdown interval');
-        clearInterval(window.countdownInterval);
-        window.countdownInterval = null;
-    }
+    let lastUpdateTime = 0; // Define lastUpdateTime here
 
-    let lastUpdateTime = Date.now();
-    
     // Function to fetch score and handle result
     async function fetchScoreAndHandle() {
         const now = Date.now();
@@ -727,7 +703,7 @@ function startPeriodicScoreUpdates(matchId) {
         try {
             console.log(`Fetching score for match ${matchId} at ${new Date().toISOString()}`);
             const result = await fetchAndUpdateScore(matchId);
-            lastUpdateTime = now;
+            lastUpdateTime = now; // Update the time after successful fetch
             console.log('Score fetch result:', result);
             
             if (result?.isComplete) {
@@ -763,15 +739,15 @@ function startPeriodicScoreUpdates(matchId) {
         }
     }
 
-    // Initial fetch
+    // Make initial API call immediately
     fetchScoreAndHandle().then(shouldStop => {
         if (shouldStop) {
             console.log('Initial fetch indicates match is complete');
             return;
         }
         
+        // Set up interval for subsequent calls
         console.log('Setting up minute interval for updates');
-        // Set up the interval for subsequent fetches
         const updateInterval = setInterval(async () => {
             const shouldStop = await fetchScoreAndHandle();
             if (shouldStop) {
@@ -779,11 +755,9 @@ function startPeriodicScoreUpdates(matchId) {
                 clearInterval(updateInterval);
                 window.currentUpdateInterval = null;
             }
-        }, 60000); // Run every minute (60000 ms)
+        }, 60000); // Run every minute after initial call
         
-        // Store the interval ID globally
         window.currentUpdateInterval = updateInterval;
-        console.log('Update interval set:', window.currentUpdateInterval);
     });
 }
 
