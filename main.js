@@ -9,6 +9,56 @@ import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scor
 import 'webxr-polyfill';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+// Function to check if user is on iOS
+function isIOSDevice() {
+    const platform = navigator.userAgent.includes('iPhone') || 
+                    navigator.userAgent.includes('iPad') || 
+                    (navigator.userAgent.includes('Macintosh') && 'ontouchend' in document);
+    return platform;
+}
+
+// Function to create message container
+function createMessageContainer(isIOS) {
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.top = '50%';
+    container.style.left = '50%';
+    container.style.transform = 'translate(-50%, -50%)';
+    container.style.backgroundColor = 'rgba(255, 255, 255, 0.95)';
+    container.style.padding = '20px';
+    container.style.borderRadius = '12px';
+    container.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+    container.style.textAlign = 'center';
+    container.style.maxWidth = '80%';
+    container.style.fontFamily = 'Arial, sans-serif';
+    container.style.zIndex = '1000';
+
+    if (isIOS) {
+        container.innerHTML = `
+            <h3 style="color: #1a73e8; margin-bottom: 15px;">WebXR Setup Required</h3>
+            <p style="margin-bottom: 15px;">Please follow these steps:</p>
+            <ol style="text-align: left; margin-bottom: 15px;">
+                <li style="margin-bottom: 10px;">
+                    <a href="https://apps.apple.com/us/app/webxr-viewer/id1295998056" 
+                       target="_blank" 
+                       style="color: #1a73e8; text-decoration: none; font-weight: bold;">
+                       Download WebXR Viewer from the App Store
+                    </a>
+                </li>
+                <li style="margin-bottom: 10px;">
+                    Open the WebXR Viewer app and enter this URL:
+                    <div style="background: #f5f5f5; padding: 10px; margin-top: 5px; border-radius: 5px;">
+                        https://communications-aagnyasoft.github.io/ipl-demo/
+                    </div>
+                </li>
+            </ol>`;
+    } else {
+        container.textContent = 'WEBXR NOT AVAILABLE';
+    }
+
+    return container;
+}
+
 // Initialize WebXR polyfill
 if (window.isSecureContext) {
     // Check if WebXR is supported
@@ -16,6 +66,11 @@ if (window.isSecureContext) {
         console.log('WebXR is supported');
     } else {
         console.log('WebXR is not supported, using polyfill');
+        const isIOS = isIOSDevice();
+        const messageContainer = createMessageContainer(isIOS);
+        document.body.appendChild(messageContainer);
+        // Stop further execution since WebXR is not available
+        throw new Error('WebXR not available');
     }
 } else {
     console.warn('WebXR requires a secure context (HTTPS)');
