@@ -637,7 +637,7 @@ async function handleMatchCompletion(matchId, status) {
     }
 }
 
-// Modify startCountdown to only start periodic updates when match begins
+// Modify startCountdown function to ensure time is displayed
 function startCountdown(startTime) {
     let countdownInterval;
     let isMatchStarted = false;
@@ -660,7 +660,6 @@ function startCountdown(startTime) {
 
             // Check if 10 minutes before match and last API call was more than 1 minute ago
             if (!isApiStarted && timeLeft <= 600000 && (now - lastApiCallTime >= 60000)) {
-                console.log('Less than 10 minutes to match, starting API calls');
                 isApiStarted = true;
                 lastApiCallTime = now;
                 if (currentMatchId) {
@@ -678,8 +677,11 @@ function startCountdown(startTime) {
         }
     };
 
+    // Initial call to update the display
+    updateTimer();
+    
+    // Set up interval for updates
     countdownInterval = setInterval(updateTimer, 1000);
-    updateTimer(); // Initial call
 
     // Return cleanup function
     return () => {
@@ -701,12 +703,13 @@ function updateCountdownDisplay(text) {
             scoreboardGroup.remove(existingText);
         }
         
-        // Only show countdown text if it's not "Match Started!"
-        if (text !== "Match Started!") {
-            const textMesh = createTextLine(text, font, 0.02, 0x1a73e8, 0.045);
-            if (textMesh) {
-                textMesh.userData.isCountdown = true;
-            }
+        // Create new countdown text with larger size and more visible position
+        const textMesh = createTextLine(text, font, 0.03, 0x1a73e8, 0);
+        if (textMesh) {
+            textMesh.userData.isCountdown = true;
+            // Ensure the text is visible by adjusting its position and scale
+            textMesh.position.z = -0.013;
+            textMesh.scale.set(0.8, 0.8, 0.0001);
         }
     });
 }
@@ -741,11 +744,20 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                 createTextLine(`${team1Text} vs ${team2Text}`, 
                     font, 0.035, 0x000000, 0.07);
 
+                // Match Status (third line)
+                const matchTime = new Date(parseInt(matchData.timing.startTime));
+                const statusText = `Match starts at ${matchTime.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                    timeZone: 'GMT'
+                })} GMT`;
+                createTextLine(statusText, font, 0.022, 0x666666, 0.03);
+
                 // If we have score info, show it
                 if (scoreInfo && scoreInfo.currentInnings) {
-                    // Match Status (third line)
-                    createTextLine(scoreInfo.matchStatus, font, 0.022, 0x666666, 0.03);
-                    
                     // Score (fourth line)
                     const scoreText = `${scoreInfo.currentInnings.score}/${scoreInfo.currentInnings.wickets} (${scoreInfo.currentInnings.overs} ov)`;
                     createTextLine(scoreText, font, 0.03, 0x000000, -0.02);
@@ -759,7 +771,6 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                 createTextLine(matchData.venue.city, font, 0.02, 0x666666, -0.12);
                 
                 // Start time in IST moved down
-                const matchTime = new Date(parseInt(matchData.timing.startTime));
                 const istTime = matchTime.toLocaleString('en-US', {
                     timeZone: 'Asia/Kolkata',
                     day: 'numeric',
