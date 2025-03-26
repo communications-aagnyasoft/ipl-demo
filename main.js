@@ -9,6 +9,12 @@ import { fetchAndUpdateScore, subscribeToMatchScore, getNextMatch } from './scor
 import 'webxr-polyfill';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+// Add at the top of the file with other global variables
+let lastFirebaseCall = 0;
+const FIREBASE_CALL_INTERVAL = 10000; // 10 seconds in milliseconds
+let isFirebaseCallInProgress = false;
+let firebaseCallTimeout = null;
+
 // Function to check if user is on iOS
 function isIOSDevice() {
     const platform = navigator.userAgent.includes('iPhone') || 
@@ -81,7 +87,7 @@ console.log('Three.js Version:', THREE.REVISION); // This will verify Three.js i
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
 camera.position.set(0, 0, 1);
 camera.lookAt(0, 0, 0);
 
@@ -91,16 +97,20 @@ const renderer = new THREE.WebGLRenderer({
     powerPreference: "high-performance"
 });
 
-// Enhanced renderer settings for better visual quality
+// Enhanced renderer settings for better AR compatibility
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Optimize for performance
+renderer.setPixelRatio(window.devicePixelRatio);
 renderer.xr.enabled = true;
-renderer.shadowMap.enabled = true; // Enable shadows
-renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
 
-// Add WebXR session event listeners
+// Add WebXR session event listeners with position reset
 renderer.xr.addEventListener('sessionstart', () => {
     console.log('AR session started');
+    // Reset scoreboard position when AR session starts
+    scoreboardGroup.position.set(0, 0, -0.5);
+    scoreboardGroup.rotation.set(0, Math.PI, 0);
 });
 
 renderer.xr.addEventListener('sessionend', () => {
@@ -109,8 +119,14 @@ renderer.xr.addEventListener('sessionend', () => {
 
 document.body.appendChild(renderer.domElement);
 
-// Customize AR button
-const arButton = ARButton.createButton(renderer);
+// Modify AR button creation with required features
+const arButton = ARButton.createButton(renderer, {
+    requiredFeatures: ['hit-test', 'dom-overlay'],
+    domOverlay: { root: document.body },
+    optionalFeatures: ['dom-overlay', 'depth-sensing', 'light-estimation']
+});
+
+// Enhanced AR button styling
 arButton.style.backgroundColor = '#1a73e8';
 arButton.style.padding = '16px 24px';
 arButton.style.border = 'none';
@@ -122,12 +138,13 @@ arButton.style.transition = 'all 0.3s ease';
 arButton.style.bottom = '24px';
 document.body.appendChild(arButton);
 
-// Create scoreboard group
+// Create scoreboard group with improved positioning
 const scoreboardGroup = new THREE.Group();
-scoreboardGroup.rotation.y = Math.PI;
+scoreboardGroup.position.set(0, 0, -0.5);
+scoreboardGroup.rotation.set(0, Math.PI, 0);
 scene.add(scoreboardGroup);
 
-// Create main plate with modern design
+// Create main plate with improved material settings
 const plateGeometry = new THREE.BoxGeometry(0.6, 0.3, 0.02);
 const plateMaterial = new THREE.MeshPhysicalMaterial({ 
     color: 0xffffff,
@@ -158,9 +175,6 @@ const glowMaterial = new THREE.MeshPhysicalMaterial({
 const glow = new THREE.Mesh(glowGeometry, glowMaterial);
 glow.position.z = -0.01;
 scoreboardGroup.add(glow);
-
-// Position the scoreboard
-scoreboardGroup.position.set(0, 0, -0.5);
 
 // Enhanced lighting setup
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -403,15 +417,57 @@ controls.enablePan = false;
 
 // Modify the existing animate function to include controls update
 function animate() {
-    requestAnimationFrame(animate);
-    if (controls) {
-        controls.update();
-    }
-    renderer.render(scene, camera);
+    renderer.setAnimationLoop((timestamp, frame) => {
+        if (frame) {
+            const referenceSpace = renderer.xr.getReferenceSpace();
+            if (referenceSpace) {
+                const pose = frame.getViewerPose(referenceSpace);
+                if (pose) {
+                    // Update scoreboard position based on viewer pose if needed
+                    // This ensures the scoreboard stays visible in AR
+                    scoreboardGroup.updateMatrixWorld();
+                }
+            }
+        }
+        
+        if (controls) {
+            controls.update();
+        }
+        
+        renderer.render(scene, camera);
+    });
 }
 
 // Finally, start the animation
 animate();
+
+// Function to ensure minimum time between Firebase calls
+async function rateLimitedFirebaseCall(callback) {
+    const now = Date.now();
+    const timeSinceLastCall = now - lastFirebaseCall;
+
+    // If less than 10 seconds since last call, wait for the remaining time
+    if (timeSinceLastCall < FIREBASE_CALL_INTERVAL) {
+        const waitTime = FIREBASE_CALL_INTERVAL - timeSinceLastCall;
+        console.log(`Waiting ${Math.round(waitTime/1000)} seconds before next Firebase call`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    if (isFirebaseCallInProgress) {
+        console.log('Firebase call already in progress, skipping...');
+        return null;
+    }
+
+    try {
+        isFirebaseCallInProgress = true;
+        lastFirebaseCall = Date.now();
+        console.log(`Making Firebase call at ${new Date().toISOString()}`);
+        const result = await callback();
+        return result;
+    } finally {
+        isFirebaseCallInProgress = false;
+    }
+}
 
 // Function to fetch and store IPL matches
 async function fetchAndStoreMatches() {
@@ -451,20 +507,19 @@ async function fetchAndStoreMatches() {
     }
 }
 
-// Function to get today's match from schedule
+// Modify getTodayMatch function to use rate limiting
 async function getTodayMatch() {
-    const matchScheduleRef = ref(database, 'IPL Data/Match Schedule');
-    try {
+    return await rateLimitedFirebaseCall(async () => {
+        const matchScheduleRef = ref(database, 'IPL Data/Match Schedule');
         const snapshot = await get(matchScheduleRef);
         if (snapshot.exists()) {
             const matches = snapshot.val();
             const today = new Date();
-            today.setHours(0, 0, 0, 0); // Set to start of day
+            today.setHours(0, 0, 0, 0);
 
-            // Find the match scheduled for today
             const todayMatch = matches.find(match => {
                 const matchDate = new Date(parseInt(match.timing.startTime));
-                matchDate.setHours(0, 0, 0, 0); // Set to start of day
+                matchDate.setHours(0, 0, 0, 0);
                 return matchDate.getTime() === today.getTime();
             });
 
@@ -472,7 +527,6 @@ async function getTodayMatch() {
                 console.log('Found match for today:', todayMatch);
                 return todayMatch;
             } else {
-                // If no match today, find the next upcoming match
                 const nextMatch = matches.find(match => {
                     const matchDate = new Date(parseInt(match.timing.startTime));
                     return matchDate > today;
@@ -486,10 +540,7 @@ async function getTodayMatch() {
         }
         console.log('No matches found in schedule');
         return null;
-    } catch (error) {
-        console.error('Error getting today\'s match:', error);
-        return null;
-    }
+    });
 }
 
 // Modify the initialization to use today's match
@@ -652,7 +703,7 @@ function updateCountdownDisplay(text) {
     });
 }
 
-// Modify updateMatchDisplay to include GMT start time
+// Modify updateMatchDisplay to properly show score information
 async function updateMatchDisplay(matchData, scoreInfo = null) {
     const fontLoader = new FontLoader();
     fontLoader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function (font) {
@@ -682,34 +733,22 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                 createTextLine(`${team1Text} vs ${team2Text}`, 
                     font, 0.035, 0x000000, 0.07);
 
-                // Match start time in GMT (new addition)
-                const gmtTime = new Date(parseInt(matchData.timing.startTime));
-                const gmtString = gmtTime.toLocaleString('en-US', {
-                    timeZone: 'GMT',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                });
-                // createTextLine(`Match starts at ${gmtString} GMT`, font, 0.02, 0x1a73e8, 0.03);
-
                 // If we have score info, show it
                 if (scoreInfo && scoreInfo.currentInnings) {
                     // Match Status (third line)
-                    createTextLine(scoreInfo.matchStatus, font, 0.022, 0x666666, -0.05);
+                    createTextLine(scoreInfo.matchStatus, font, 0.022, 0x666666, 0.03);
                     
                     // Score (fourth line)
                     const scoreText = `${scoreInfo.currentInnings.score}/${scoreInfo.currentInnings.wickets} (${scoreInfo.currentInnings.overs} ov)`;
-                    createTextLine(scoreText, font, 0.03, 0x000000, 0.01);
+                    createTextLine(scoreText, font, 0.03, 0x000000, -0.02);
                     
                     // Run Rate (fifth line)
-                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.022, 0x666666, -0.02);
+                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.022, 0x666666, -0.07);
                 }
                 
                 // Venue split into two separate lines
-                createTextLine(matchData.venue.ground, font, 0.02, 0x666666, -0.08);
-                createTextLine(matchData.venue.city, font, 0.02, 0x666666, -0.11);
+                createTextLine(matchData.venue.ground, font, 0.02, 0x666666, -0.10);
+                createTextLine(matchData.venue.city, font, 0.02, 0x666666, -0.12);
                 
                 // Start time in IST moved down
                 const matchTime = new Date(parseInt(matchData.timing.startTime));
@@ -721,7 +760,7 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                     minute: '2-digit',
                     hour12: true
                 });
-                createTextLine(`${istTime} IST`, font, 0.02, 0x666666, -0.14);
+                createTextLine(`${istTime} IST`, font, 0.02, 0x666666, -0.143);
                 
                 // Start countdown
                 startCountdown(matchData.timing.startTime);
@@ -738,60 +777,92 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
 function startPeriodicScoreUpdates(matchId) {
     console.log(`Setting up periodic score updates for match ${matchId}`);
     
-    // Clear any existing intervals
+    // Clear any existing intervals and timeouts
     if (window.currentUpdateInterval) {
         clearInterval(window.currentUpdateInterval);
         window.currentUpdateInterval = null;
     }
+    if (firebaseCallTimeout) {
+        clearTimeout(firebaseCallTimeout);
+        firebaseCallTimeout = null;
+    }
 
-    let lastUpdateTime = 0; // Define lastUpdateTime here
+    let lastScoreData = null;
+    let isFetching = false;
+    let lastFetchTime = Date.now();
+    const FETCH_INTERVAL = 10000; // 10 seconds in milliseconds
 
     // Function to fetch score and handle result
     async function fetchScoreAndHandle() {
-        const now = Date.now();
-        // Only fetch if it's been at least 58 seconds since last update
-        if (now - lastUpdateTime < 58000) {
-            console.log('Skipping update - too soon since last update');
+        if (isFetching) {
+            console.log('Fetch already in progress, skipping...');
             return false;
         }
 
         try {
+            isFetching = true;
             console.log(`Fetching score for match ${matchId} at ${new Date().toISOString()}`);
+            
+            // Get current match data first
+            const matchScheduleRef = ref(database, 'IPL Data/Match Schedule');
+            const matchScheduleSnapshot = await get(matchScheduleRef);
+            let matchData = null;
+            
+            if (matchScheduleSnapshot.exists()) {
+                const matches = matchScheduleSnapshot.val();
+                const matchesArray = Array.isArray(matches) ? matches : Object.values(matches);
+                matchData = matchesArray.find(match => match.matchId === matchId);
+            }
+
+            // Then get score data using the queue system
             const result = await fetchAndUpdateScore(matchId);
-            lastUpdateTime = now; // Update the time after successful fetch
-            console.log('Score fetch result:', result);
+            
+            if (!result) {
+                console.log('No score data received');
+                return false;
+            }
+
+            // Check if the score data has actually changed
+            if (JSON.stringify(result) === JSON.stringify(lastScoreData)) {
+                console.log('Score data unchanged, skipping display update');
+                return false;
+            }
+            lastScoreData = result;
             
             if (result?.isComplete) {
                 console.log(`Match ${matchId} is complete, handling completion...`);
-                handleMatchCompletion(result.matchId, result.status);
-                return true; // Signal to stop updates
+                handleMatchCompletion(matchId, result.matchStatus);
+                return true;
             }
 
-            // Update display with score info
-            if (result?.scoreInfo) {
-                const matchScheduleRef = ref(database, 'IPL Data/Match Schedule');
-                const matchScheduleSnapshot = await get(matchScheduleRef);
-                if (matchScheduleSnapshot.exists()) {
-                    const matches = matchScheduleSnapshot.val();
-                    const matchesArray = Array.isArray(matches) ? matches : Object.values(matches);
-                    const currentMatch = matchesArray.find(match => match.matchId === matchId);
-                    if (currentMatch) {
-                        updateMatchDisplay(currentMatch, result.scoreInfo);
-                    }
-                }
+            if (matchData) {
+                updateMatchDisplay(matchData, result);
             }
             
-            return false; // Continue updates
+            return false;
         } catch (error) {
-            if (error.message.includes('429')) {
-                console.log('Rate limit reached, waiting before next request...');
-                // Wait for 2 minutes before trying again
-                await new Promise(resolve => setTimeout(resolve, 120000));
-            } else {
-                console.error('Error in score fetch:', error);
-            }
-            return false; // Continue updates despite error
+            console.error('Error in score fetch:', error);
+            return false;
+        } finally {
+            isFetching = false;
         }
+    }
+
+    // Function to schedule next fetch
+    function scheduleNextFetch() {
+        const now = Date.now();
+        const timeSinceLastFetch = now - lastFetchTime;
+        const timeUntilNextFetch = Math.max(0, FETCH_INTERVAL - timeSinceLastFetch);
+
+        console.log(`Scheduling next fetch in ${Math.round(timeUntilNextFetch/1000)} seconds`);
+        
+        firebaseCallTimeout = setTimeout(async () => {
+            const shouldStop = await fetchScoreAndHandle();
+            if (!shouldStop) {
+                lastFetchTime = Date.now();
+                scheduleNextFetch();
+            }
+        }, timeUntilNextFetch);
     }
 
     // Make initial API call immediately
@@ -801,18 +872,8 @@ function startPeriodicScoreUpdates(matchId) {
             return;
         }
         
-        // Set up interval for subsequent calls
-        console.log('Setting up minute interval for updates');
-        const updateInterval = setInterval(async () => {
-            const shouldStop = await fetchScoreAndHandle();
-            if (shouldStop) {
-                console.log('Match complete, clearing interval');
-                clearInterval(updateInterval);
-                window.currentUpdateInterval = null;
-            }
-        }, 60000); // Run every minute after initial call
-        
-        window.currentUpdateInterval = updateInterval;
+        // Schedule the next fetch
+        scheduleNextFetch();
     });
 }
 
@@ -833,4 +894,9 @@ window.addEventListener('beforeunload', () => {
     if (window.currentUpdateInterval) {
         clearInterval(window.currentUpdateInterval);
     }
+    if (firebaseCallTimeout) {
+        clearTimeout(firebaseCallTimeout);
+    }
+    lastScoreData = null;
+    isFirebaseCallInProgress = false;
 });

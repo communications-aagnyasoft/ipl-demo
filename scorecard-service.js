@@ -4,6 +4,10 @@ import { ref, get, set, onValue } from "firebase/database";
 let lastUpdateTime = 0;
 let lastApiCallTime = 0;
 let isApiStarted = false;
+let callQueue = [];
+let isProcessing = false;
+let lastCallTime = 0;
+const MIN_CALL_INTERVAL = 10000; // 10 seconds in milliseconds
 
 // Function to get all match IDs from Firebase
 async function getMatchIdsFromFirebase() {
@@ -26,39 +30,77 @@ async function getMatchIdsFromFirebase() {
     }
 }
 
-export async function fetchAndUpdateScore(matchId) {
-    console.log(`Fetching scorecard for match ID: ${matchId}`);
-    
-    try {
-        // Get score data from Firebase
-        const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
-        const snapshot = await get(scoreRef);
-        
-        if (!snapshot.exists()) {
-            console.log(`No score data found for match ${matchId}`);
-            return null;
-        }
-
-        const data = snapshot.val();
-        console.log(`Received scorecard data for match ${matchId}:`, data);
-
-        // Check if match is complete
-        if (data.isComplete) {
-            console.log(`Match ${matchId} is complete. Status: ${data.matchStatus}`);
-            return {
-                isComplete: true,
-                status: data.matchStatus,
-                matchId: matchId
-            };
-        }
-
-        // Return the current score data
-        return data;
-
-    } catch (error) {
-        console.error('Error fetching score:', error);
-        throw error;
+// Function to process the call queue
+async function processCallQueue() {
+    if (isProcessing || callQueue.length === 0) {
+        return;
     }
+
+    isProcessing = true;
+    const now = Date.now();
+    const timeSinceLastCall = now - lastCallTime;
+
+    // Wait if needed to maintain minimum interval
+    if (timeSinceLastCall < MIN_CALL_INTERVAL) {
+        await new Promise(resolve => setTimeout(resolve, MIN_CALL_INTERVAL - timeSinceLastCall));
+    }
+
+    try {
+        const { callback, resolve, reject } = callQueue.shift();
+        lastCallTime = Date.now();
+        const result = await callback();
+        resolve(result);
+    } catch (error) {
+        reject(error);
+    } finally {
+        isProcessing = false;
+        // Process next call if any
+        if (callQueue.length > 0) {
+            processCallQueue();
+        }
+    }
+}
+
+// Function to queue a Firebase call
+async function queueFirebaseCall(callback) {
+    return new Promise((resolve, reject) => {
+        callQueue.push({ callback, resolve, reject });
+        processCallQueue();
+    });
+}
+
+// Modify fetchAndUpdateScore to use the queue
+export async function fetchAndUpdateScore(matchId) {
+    console.log(`Queueing scorecard fetch for match ID: ${matchId}`);
+    
+    return queueFirebaseCall(async () => {
+        try {
+            const scoreRef = ref(database, `IPL Data/Live Scores/${matchId}`);
+            const snapshot = await get(scoreRef);
+            
+            if (!snapshot.exists()) {
+                console.log(`No score data found for match ${matchId}`);
+                return null;
+            }
+
+            const data = snapshot.val();
+            console.log(`Received scorecard data for match ${matchId}:`, data);
+
+            if (data.isComplete) {
+                console.log(`Match ${matchId} is complete. Status: ${data.matchStatus}`);
+                return {
+                    isComplete: true,
+                    status: data.matchStatus,
+                    matchId: matchId
+                };
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Error fetching score:', error);
+            throw error;
+        }
+    });
 }
 
 function formatScoreDisplay(scoreInfo) {
@@ -68,7 +110,7 @@ function formatScoreDisplay(scoreInfo) {
     return `*${currentInnings.battingTeam}: ${currentInnings.score}/${currentInnings.wickets} (${currentInnings.overs} ov, RR: ${currentInnings.runRate})`;
 }
 
-// Modified to check match timing before fetching scores
+// Modify startScoreUpdates to use the queue
 export async function startScoreUpdates() {
     console.log('Starting score update service...');
     
@@ -82,38 +124,51 @@ export async function startScoreUpdates() {
         }
 
         const matches = snapshot.val();
-        
-        // Update scores every minute (60000ms)
-        const intervalId = setInterval(async () => {
-            // Check if enough time has passed since last update
-            if (!checkUpdateTime()) {
-                console.log('Skipping this interval - too soon since last update');
+        let isUpdating = false;
+        const UPDATE_INTERVAL = 10000; // 10 seconds in milliseconds
+
+        // Function to update scores
+        async function updateScores() {
+            if (isUpdating) {
+                console.log('Update already in progress, skipping...');
                 return;
             }
 
-            console.log('Starting periodic score update at:', new Date().toISOString());
-            
-            for (const match of matches) {
-                try {
-                    const matchTime = parseInt(match.timing.startTime);
-                    const now = Date.now();
-                    const timeUntilMatch = matchTime - now;
-                    
-                    // Check if match is within 28 minutes of start or has already started
-                    if (timeUntilMatch <= 28 * 60 * 1000 || timeUntilMatch < 0) {
-                        console.log(`Fetching score for match ${match.matchId} (within 28 mins window or started)`);
-                        await fetchAndUpdateScore(match.matchId);
-                    } else {
-                        console.log(`Match ${match.matchId} starts in ${Math.round(timeUntilMatch/60000)} minutes`);
-                    }
-                } catch (error) {
-                    console.error(`Error processing match ${match.matchId}:`, error);
-                }
-            }
-        }, 60000); // 60 seconds interval
+            try {
+                isUpdating = true;
+                console.log('Starting periodic score update at:', new Date().toISOString());
+                
+                for (const match of matches) {
+                    try {
+                        const matchTime = parseInt(match.timing.startTime);
+                        const now = Date.now();
+                        const timeUntilMatch = matchTime - now;
 
-        // Return the interval ID for cleanup
-        return intervalId;
+                        // Only update if match has started or is about to start
+                        if (timeUntilMatch <= 600000) { // 10 minutes before match
+                            await fetchAndUpdateScore(match.matchId);
+                            console.log(`Updated score for match ${match.matchId}`);
+                        }
+                    } catch (error) {
+                        console.error(`Error updating score for match ${match.matchId}:`, error);
+                    }
+                }
+            } finally {
+                isUpdating = false;
+            }
+        }
+
+        // Initial update
+        await updateScores();
+
+        // Set up interval for subsequent updates
+        const intervalId = setInterval(updateScores, UPDATE_INTERVAL);
+
+        // Cleanup function
+        return () => {
+            clearInterval(intervalId);
+            console.log('Score update service stopped');
+        };
 
     } catch (error) {
         console.error('Error in score update service:', error);
