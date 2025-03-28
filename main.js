@@ -709,7 +709,7 @@ function updateCountdownDisplay(text) {
             scoreboardGroup.remove(existingText);
         }
         
-        // Create new countdown text with larger size and more visible position
+        // Create new countdown text with size and more visible position
         const textMesh = createTextLine(text, font, 0.03, 0x1a73e8, 0);
         if (textMesh) {
             textMesh.userData.isCountdown = true;
