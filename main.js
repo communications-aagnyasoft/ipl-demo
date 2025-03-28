@@ -209,7 +209,7 @@ function createScoreText(matchData) {
 
         if (matchData) {
             // Format: "Team1 vs Team2"
-            createTextLine(`${matchData.team1} vs ${matchData.team2}`, font, 0.04, 0x1a73e8, 0.08, 0);
+            createTextLine(`${matchData.team1} vs ${matchData.team2}`, font, 0.06, 0x1a73e8, 0.08, 0);
             
             // Score if available
             if (matchData.score) {
@@ -655,8 +655,13 @@ function startCountdown(startTime) {
             const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
             const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
 
-            const countdownText = `Starts in: ${days}d ${hours}h ${minutes}m ${seconds}s`;
-            updateCountdownDisplay(countdownText);
+            // Show "Match Started!" when less than 10 minutes remaining
+            if (timeLeft <= 600000 && timeLeft > 0) {
+                updateCountdownDisplay("Match Started!");
+            } else {
+                const countdownText = `Starts in: ${days}d ${hours}h ${minutes}m ${seconds}s`;
+                updateCountdownDisplay(countdownText);
+            }
 
             // Check if 10 minutes before match and last API call was more than 1 minute ago
             if (!isApiStarted && timeLeft <= 600000 && (now - lastApiCallTime >= 60000)) {
@@ -668,7 +673,8 @@ function startCountdown(startTime) {
             }
         } else if (!isMatchStarted) {
             isMatchStarted = true;
-            updateCountdownDisplay("Match Started!");
+            // Don't show "Match Started!" when countdown reaches zero
+            updateCountdownDisplay("");
             // Start periodic updates when match begins if last call was more than 1 minute ago
             if (currentMatchId && (now - lastApiCallTime >= 60000)) {
                 lastApiCallTime = now;
@@ -754,21 +760,20 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
                     hour12: false,
                     timeZone: 'GMT'
                 })} GMT`;
-                createTextLine(statusText, font, 0.022, 0x666666, 0.03);
 
                 // If we have score info, show it
                 if (scoreInfo && scoreInfo.currentInnings) {
                     // Score (fourth line)
                     const scoreText = `${scoreInfo.currentInnings.score}/${scoreInfo.currentInnings.wickets} (${scoreInfo.currentInnings.overs} ov)`;
-                    createTextLine(scoreText, font, 0.03, 0x000000, -0.02);
+                    createTextLine(scoreText, font, 0.05, 0x000000, 0.00);
                     
                     // Run Rate (fifth line)
-                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.022, 0x666666, -0.07);
+                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.03, 0x666666, -0.05);
                 }
                 
                 // Venue split into two separate lines
-                createTextLine(matchData.venue.ground, font, 0.02, 0x666666, -0.10);
-                createTextLine(matchData.venue.city, font, 0.02, 0x666666, -0.12);
+                createTextLine(matchData.venue.ground, font, 0.02, 0x666666, -0.09);
+                createTextLine(matchData.venue.city, font, 0.02, 0x666666, -0.115);
                 
                 // Start time in IST moved down
                 const istTime = matchTime.toLocaleString('en-US', {
