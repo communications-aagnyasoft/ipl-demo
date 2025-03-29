@@ -480,14 +480,6 @@ async function rateLimitedFirebaseCall(callback) {
 // Function to fetch and store IPL matches
 async function fetchAndStoreMatches() {
     console.log('Starting to fetch IPL matches...');
-    
-    // const options = {
-    //     method: 'GET',
-    //     headers: {
-    //         'x-rapidapi-key': 'a667b4570bmsh45fb03368821a73p190842jsn7f07295bb002',
-    //         'x-rapidapi-host': 'cricbuzz-cricket.p.rapidapi.com'
-    //     }
-    // };
 
     try {
         // Check for existing data
@@ -498,12 +490,6 @@ async function fetchAndStoreMatches() {
             console.log('Using existing match data from Firebase');
             return snapshot.val();
         }
-
-        // Comment out API fetch
-        // console.log('RapidAPI is called for IPL matches');
-        // const response = await fetch('https://cricbuzz-cricket.p.rapidapi.com/series/v1/9237', options);
-        // const data = await response.json();
-        // console.log('API Response:', data);
 
         // Use existing data in Firebase instead of fetching
         console.log('Using stored match data');
