@@ -588,7 +588,7 @@ async function handleMatchCompletion(matchId, status) {
                 font, 0.04, 0x000000, 0.05);
             
             // Venue (third line)
-            createTextLine(`${nextMatch.venue.ground}, ${nextMatch.venue.city}`, 
+            createTextLine(`${nextMatch.venue.ground}`, 
                 font, 0.02, 0x666666, -0.08);
 
             createTextLine(`${nextMatch.venue.city}`, 
