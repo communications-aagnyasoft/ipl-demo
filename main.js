@@ -738,23 +738,32 @@ async function updateMatchDisplay(matchData, scoreInfo = null) {
 
                 // Match Status (third line)
                 const matchTime = new Date(parseInt(matchData.timing.startTime));
-                const statusText = `Match starts at ${matchTime.toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false,
-                    timeZone: 'GMT'
-                })} GMT`;
+                let statusText;
+                
+                if (scoreInfo && scoreInfo.matchStatus) {
+                    // Use match status from Firebase if available
+                    statusText = scoreInfo.matchStatus;
+                } else {
+                    // Default to showing match start time
+                    statusText = `Match starts at ${matchTime.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                        timeZone: 'GMT'
+                    })} GMT`;
+                }
+                createTextLine(statusText, font, 0.022, 0X000000, -0.06);
 
                 // If we have score info, show it
                 if (scoreInfo && scoreInfo.currentInnings) {
                     // Score (fourth line)
                     const scoreText = `${scoreInfo.currentInnings.score}/${scoreInfo.currentInnings.wickets} (${scoreInfo.currentInnings.overs} ov)`;
-                    createTextLine(scoreText, font, 0.05, 0x000000, 0.00);
+                    createTextLine(scoreText, font, 0.05, 0x000000, 0.01);
                     
                     // Run Rate (fifth line)
-                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.03, 0x666666, -0.05);
+                    createTextLine(`RR: ${scoreInfo.currentInnings.runRate}`, font, 0.03, 0x666666, -0.03);
                 }
                 
                 // Venue split into two separate lines
